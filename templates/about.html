@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}About | HeartShield{% endblock %}
+
+{% block content %}
+<style>
+    /* CSS specific to the info cards and their layout */
+    .info-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 20px;
+        margin-top: 20px;
+    }
+
+    .card {
+        background-size: cover;
+        background-position: center;
+        color: white; /* Text color for readability on image backgrounds */
+        padding: 20px;
+        border-radius: var(--border-radius); /* Using the global variable from style.css */
+        margin-bottom: 20px;
+        background-blend-mode: darken; /* Darkens the background image */
+        background-color: rgba(0, 0, 0, 0.45); /* Darkening color */
+        text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8); /* Text shadow for better contrast */
+        min-height: 200px; /* Ensures visible area for background image */
+        display: flex; /* For flexible content alignment */
+        flex-direction: column;
+        justify-content: center; /* Vertically centers content */
+    }
+
+    .card h3 {
+        color: white; /* Ensure heading is visible against dark background */
+        margin-top: 0;
+        font-size: 1.5em; /* Larger heading */
+        margin-bottom: 10px;
+    }
+
+    .card p {
+        font-size: 1em; /* Standard paragraph size */
+        line-height: 1.6;
+        font-weight: 500; /* Slightly bolder text for readability */
+    }
+
+    /* Specific background images for each card */
+    .card.diet {
+        background-image: url('/static/images/healthyfood.jpg'); /* REPLACE with actual path to your saved 'Eat a Healthy Diet' image */
+    }
+    .card.active {
+        background-image: url('/static/images/active.jpg'); /* REPLACE with actual path to your saved 'Stay Active' image */
+    }
+    .card.stress {
+        background-image: url('/static/images/positive.jpg'); /* REPLACE with actual path to your saved 'Manage Stress' image */
+    }
+    .card.smoke {
+        background-image: url('/static/images/nosmoke.jpg'); /* REPLACE with actual path to your saved 'Don't Smoke' image */
+    }
+
+    /* Responsive adjustments for info-cards */
+    @media (max-width: 768px) {
+        .info-cards {
+            grid-template-columns: 1fr; /* Stack cards on smaller screens */
+        }
+    }
+</style>
+
+<div class="container page-content">
+    <h1>About Our Model and Heart Health</h1>
+    
+    <section>
+        <h2>Common Heart-Related Problems</h2>
+        <p>Cardiovascular disease describes a range of conditions that affect your heart. These include:</p>
+        <ul>
+            <li><strong>Coronary Artery Disease:</strong> Damaged or diseased major blood vessels.</li>
+            <li><strong>High Blood Pressure (Hypertension):</strong> The force of blood against your artery walls is consistently too high.</li>
+            <li><strong>Arrhythmia:</strong> An irregular heartbeat, either too fast, too slow, or erratic.</li>
+            <li><strong>Heart Failure:</strong> The heart doesn't pump blood as well as it should.</li>
+        </ul>
+    </section>
+    
+    <section>
+        <h2>How This Model Can Help</h2>
+        <p>This tool uses an <strong>AI</strong> machine learning model. It was trained on a large, anonymized dataset containing thousands of patient records, each with 11 health metrics (like age, blood pressure, cholesterol) and a known outcome (presence or absence of heart disease).</p>
+        <p>By analyzing your data, the model identifies complex patterns that are associated with higher risk. It provides a probability score, giving you an indication of potential risk based on the data it learned from. This is not a diagnosis, but a powerful tool for early warning and discussion.</p>
+    </section>
+
+    <section>
+        <h2>Preventions and Healthy Activities</h2>
+        <p>You can significantly reduce your risk of heart disease by adopting a healthier lifestyle:</p>
+        <div class="info-cards">
+            <div class="card diet">
+                <h3>Eat a Healthy Diet</h3>
+                <p>Focus on fruits, vegetables, whole grains, and lean proteins. Reduce intake of saturated fats, trans fats, sodium, and added sugars.</p>
+            </div>
+            <div class="card active">
+                <h3>Stay Active</h3>
+                <p>Aim for at least 150 minutes of moderate-intensity aerobic exercise or 75 minutes of vigorous exercise each week.</p>
+            </div>
+            <div class="card stress">
+                <h3>Manage Stress</h3>
+                <p>Find healthy ways to cope with stress, such as meditation, yoga, or spending time on hobbies.</p>
+            </div>
+            <div class="card smoke">
+                <h3>Don't Smoke</h3>
+                <p>Smoking is one of the most significant risk factors. Quitting can dramatically lower your risk.</p>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

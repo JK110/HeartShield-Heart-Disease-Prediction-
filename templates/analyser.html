@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Analyser | HeartShield{% endblock %}
+
+{% block content %}
+<div class="container page-content">
+    <h1>Heart Disease Analyser</h1>
+    <p>You can either upload a medical report to auto-fill data or enter all fields manually.</p>
+
+    <section class="card analyser-section">
+        <h2>1. Upload Medical Report (Optional)</h2>
+        <div class="form-group">
+            <label for="report-file">Upload PDF or Image Report:</label>
+            <input type="file" id="report-file" accept=".pdf,.jpg,.jpeg,.png">
+        </div>
+        <button id="upload-btn" class="cta-button">Upload and Extract Data</button>
+        <div id="upload-status" class="status-message" style="display: none;"></div>
+        <div class="disclaimer">
+            <strong>Note:</strong> 
+            Please verify all auto-filled values below.
+        </div>
+    </section>
+
+    <section class="card analyser-section">
+        <h2>2. Patient Data</h2>
+        <form id="manual-form">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="age">Age (Years)</label>
+                    <input type="number" id="age" name="age" required>
+                </div>
+                <div class="form-group">
+                    <label for="gender">Biological Gender</label>
+                    <select id="gender" name="gender" required>
+                        <option value="">Select...</option>
+                        <option value="male">Male</option>
+                        <option value="female">Female</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="height">Height (in cm)</label>
+                    <input type="number" id="height" name="height" required>
+                </div>
+                <div class="form-group">
+                    <label for="weight">Weight (in kg)</label>
+                    <input type="number" step="0.1" id="weight" name="weight" required>
+                </div>
+                <div class="form-group">
+                    <label for="ap_hi">Systolic Blood Pressure</label>
+                    <input type="number" id="ap_hi" name="ap_hi" placeholder="e.g., 120" required>
+                </div>
+                <div class="form-group">
+                    <label for="ap_lo">Diastolic Blood Pressure</label>
+                    <input type="number" id="ap_lo" name="ap_lo" placeholder="e.g., 80" required>
+                </div>
+                <div class="form-group">
+                    <label for="cholesterol">Cholesterol (in mg/dL)</label>
+                    <input type="number" id="cholesterol" name="cholesterol" placeholder="e.g., 180" required>
+                </div>
+                <div class="form-group">
+                    <label for="glucose">Glucose (in mg/dL)</label>
+                    <input type="number" id="glucose" name="glucose" placeholder="e.g., 90" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="smoke">Do you smoke?</label>
+                    <select id="smoke" name="smoke" required>
+                        <option value="">Select...</option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="alco">Do you consume alcohol?</label>
+                    <select id="alco" name="alco" required>
+                        <option value="">Select...</option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="active">Are you physically active?</label>
+                    <select id="active" name="active" required>
+                        <option value="">Select...</option>
+                        <option value="no">No</option>
+                        <option value="yes">Yes</option>
+                    </select>
+                </div>
+            </div>
+            <button type="submit" id="predict-btn" class="cta-button large">Analyse Risk</button>
+        </form>
+    </section>
+
+    <section id="results-section" class="card" style="display: none;">
+        <h2>Analysis Result</h2>
+        <div id="result-text"></div>
+    </section>
+</div>
+{% endblock %}

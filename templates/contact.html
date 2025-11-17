@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Feedback | HeartShield{% endblock %}
+
+{% block content %}
+<div class="container page-content">
+    <h1>Feedback & Resources</h1>
+    
+    <section class="card">
+        <h2>Give Feedback</h2>
+        <p>Have a suggestion or found a bug? Let us know!</p>
+        <form id="feedback-form">
+            <div class="form-group">
+                <label for="name">Your Name (Optional)</label>
+                <input type="text" id="name" name="name">
+            </div>
+            <div class="form-group">
+                <label for="review">Your Review / Feedback</label>
+                <textarea id="review" name="review" rows="5" required></textarea>
+            </div>
+            <button type="submit" class="cta-button">Submit Feedback</button>
+            <div id="feedback-status" class="status-message" style="display: none;"></div>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Online Medical Consultancy</h2>
+        <p>This tool is not a diagnosis. For professional medical advice, please consult a doctor. Here are some trusted online resources:</p>
+        <ul>
+            <li><a href="https://www.practo.com/" target="_blank" rel="noopener">Practo</a></li>
+            <li><a href="https://www.medibuddy.in/doctors/online-consultation" target="_blank" rel="noopener">MediBuddy</a></li>
+            <li><a href="https://www.apollo247.com/specialties" target="_blank" rel="noopener">Apollo 24/7</a></li>
+            </ul>
+    </section>
+</div>
+{% endblock %}
