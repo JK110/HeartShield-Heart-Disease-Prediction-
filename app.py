@@ -21,7 +21,7 @@ app.secret_key = 'heartshield_super_secret_key'
 
 # --- Database Configuration ---
 # !! IMPORTANT: Update 'root:password' with your actual MySQL credentials !!
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:admin@localhost/heartshield_db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:PASSWORD@localhost/heartshield_db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'static/profile_pics'
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
