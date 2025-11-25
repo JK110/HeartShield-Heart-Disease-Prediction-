@@ -1,98 +1,42 @@
 {% extends "base.html" %}
-{% block title %} HeartShield{% endblock %}
-
+{% block title %}Home | HeartShield{% endblock %}
 {% block content %}
-<style>
-    /* Inline CSS for info cards and their layout */
-    .info-section {
-        padding: 40px 0;
-        text-align: center;
-    }
-
-    .info-cards {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 20px;
-        margin-top: 20px;
-    }
-
-    .card {
-        background-size: cover; /* Ensures background image covers the entire card */
-        background-position: center; /* Centers the background image */
-        color: white; /* Default text color for cards */
-        padding: 30px; /* Padding inside the card */
-        border-radius: var(--border-radius); /* Using the global variable from style.css */
-        box-shadow: var(--box-shadow); /* Using the global variable from style.css */
-        margin-bottom: 0; /* Removed extra margin-bottom if already handled by gap */
-        
-        /* Dark overlay for better text readability */
-        background-blend-mode: darken;
-        background-color: rgba(0, 0, 0, 0.5); /* Adjust opacity as needed */
-        
-        text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.8); /* Text shadow for contrast */
-        min-height: 220px; /* Ensure cards have enough height for image and content */
-        
-        display: flex; /* Flexbox for content alignment */
-        flex-direction: column;
-        justify-content: center; /* Vertically center content */
-        align-items: center; /* Horizontally center content */
-        text-align: center; /* Ensure text itself is centered */
-    }
-
-    .card h3 {
-        color: white; /* Ensure heading is white */
-        margin-top: 0;
-        font-size: 1.6rem; /* Adjust font size as needed */
-        margin-bottom: 10px;
-        font-weight: 700; /* Bold for headings */
-    }
-
-    .card p {
-        color: white; /* Ensure paragraph text is white */
-        font-size: 1.05rem; /* Adjust font size as needed */
-        line-height: 1.5;
-        font-weight: 400; /* Regular weight for paragraphs */
-        margin-bottom: 0; /* Remove default paragraph bottom margin */
-    }
-
-    /* Specific background images for each card */
-    .card.risk {
-        background-image: url('/static/images/risk2.jpg'); /* REPLACE with actual path for "Understand Your Risk" */
-    }
-    .card.prevention {
-        background-image: url('/static/images/protective2.jpg'); /* REPLACE with actual path for "Proactive Prevention" */
-    }
-    .card.decisions {
-        background-image: url('/static/images/doctor1.jpg'); /* REPLACE with actual path for "Informed Decisions" */
-    }
-
-    /* Responsive adjustments for info-cards */
-    @media (max-width: 768px) {
-        .info-cards {
-            grid-template-columns: 1fr; /* Stack cards on smaller screens */
-        }
-    }
-</style>
-
 <section class="hero">
     <div class="container">
-        <h1 style="font-weight: normal;">
-            Welcome to 
-            <span style="font-family: 'Quicksand', sans-serif; font-weight: 750; color: rgb(0, 0, 0);">
-                Heart
-            </span><span style="font-family: 'Quicksand', sans-serif; font-weight: 750; color: rgb(76, 154, 244);">
-                Shield
-            </span>
+        <h1 style="color: white;">
+        Welcome to <span style="color: rgb(0, 0, 0); font-weight: bold;">Heart</span><span style="color: #4169E1; font-weight: bold;">Shield</span>
         </h1>
-        <p>Using AI to provide early insights into cardiovascular health.</p>
+       <p style="color: pink; font-weight: bold;">
+        Using AI to provide early insights into cardiovascular health.
+    </p>
         <a href="{{ url_for('analyser') }}" class="cta-button large">Go to Analyser</a>
     </div>
 </section>
 
 <section class="container info-section">
+    <h2>User Reviews & Insights</h2>
+    <div class="info-cards">
+        {% if feedbacks %}
+            {% for feedback in feedbacks %}
+                <div class="card" style="background: #9de4ea; color: #333; text-shadow: none; border-left: 5px solid var(--primary-color);">
+                    {% set parts = feedback.split('\n') %}
+                    <p style="font-style: italic; color: #555;">"{{ parts[1].replace('Review:', '').strip() }}"</p>
+                    <h4 style="margin-top:10px; color: var(--secondary-color);">- {{ parts[0].replace('Name:', '').strip() }}</h4>
+                </div>
+            {% endfor %}
+        {% else %}
+            {% for quote in quotes %}
+                <div class="card" style="background: linear-gradient(135deg, #70cfb8, #007bff);">
+                     <p style="font-size: 1.1rem; font-weight: bold;">{{ quote }}</p>
+                </div>
+            {% endfor %}
+        {% endif %}
+    </div>
+</section>
+
+<section class="container info-section">
     <h2>Why Heart Health Matters</h2>
-    <p>Cardiovascular diseases (CVDs) are the leading cause of death globally. Early detection and management are key to prevention. Our tool uses a trained machine learning model to analyze key health metrics and estimate potential risk, helping you take proactive steps.</p>
-    
+    <p>Cardiovascular diseases are the leading cause of death globally. Our tool uses a trained machine learning model to analyze health metrics and estimate potential risk.</p>
     <div class="info-cards">
         <div class="card risk">
             <h3>Understand Your Risk</h3>

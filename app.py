@@ -5,263 +5,398 @@ import joblib
 import numpy as np
 import pandas as pd
 import pytesseract
-from flask import Flask, request, jsonify, render_template, send_from_directory
-from PIL import Image
+import random
+import uuid
+from datetime import datetime
+from flask import Flask, request, jsonify, render_template, redirect, url_for, flash
 from pdf2image import convert_from_path
+from flask_sqlalchemy import SQLAlchemy
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 
 # --- App Initialization ---
 app = Flask(__name__)
+app.secret_key = 'heartshield_super_secret_key' 
+
+# --- Database Configuration ---
+# !! IMPORTANT: Update 'root:password' with your actual MySQL credentials !!
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:admin@localhost/heartshield_db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = 'static/profile_pics'
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+
+db = SQLAlchemy(app)
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
 
 # --- Load Model ---
-# Ensure 'best_xgboost_model.pkl' is in the same directory as app.py
 try:
     model = joblib.load('best_xgboost_model.pkl')
     print("Model loaded successfully.")
-except FileNotFoundError:
-    print("Error: 'best_xgboost_model.pkl' not found.")
-    model = None
 except Exception as e:
-    print(f"Error loading model: {e}")
+    print(f"Warning: Model file not found. {e}")
     model = None
 
-# --- Feature List (from your training script) ---
-# NOTE: Your training script had 'Age ' with a space. We must match it.
-EXPECTED_FEATURES = [
-    'Age ', 'Gender', 'Height', 'Weight', 'ap_hi', 'ap_lo', 
-    'Cholesterol', 'Gluc', 'Smoke', 'Alco', 'Active'
-]
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
-# --- OCR & Extraction Logic (from your copy_of_ocr12.py) ---
-def preprocess_image(img_path):
-    """Preprocesses image for better OCR results."""
-    img = cv2.imread(img_path)
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
-    return gray
+# --- Database Models ---
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    
+    # Profile Details
+    name = db.Column(db.String(100))
+    age = db.Column(db.Integer)
+    gender = db.Column(db.String(10))
+    height = db.Column(db.Float)
+    weight = db.Column(db.Float) # Weight included
+    blood_group = db.Column(db.String(5))
+    profile_pic = db.Column(db.String(150), default='default.jpg')
+    
+    analyses = db.relationship('Analysis', backref='user', lazy=True)
+
+    def set_password(self, password): self.password_hash = generate_password_hash(password)
+    def check_password(self, password): return check_password_hash(self.password_hash, password)
+
+class Analysis(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date_posted = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    
+    # Inputs
+    age = db.Column(db.Integer); gender = db.Column(db.String(10))
+    height = db.Column(db.Float); weight = db.Column(db.Float)
+    ap_hi = db.Column(db.Integer); ap_lo = db.Column(db.Integer)
+    cholesterol = db.Column(db.Integer); glucose = db.Column(db.Integer)
+    smoke = db.Column(db.String(5)); alco = db.Column(db.String(5)); active = db.Column(db.String(5))
+    
+    # Outputs
+    prediction = db.Column(db.Integer); probability = db.Column(db.Float)
+
+@login_manager.user_loader
+def load_user(user_id): return User.query.get(int(user_id))
+
+# --- OCR & Preprocessing Logic ---
+EXPECTED_FEATURES = ['Age ', 'Gender', 'Height', 'Weight', 'ap_hi', 'ap_lo', 'Cholesterol', 'Gluc', 'Smoke', 'Alco', 'Active']
 
 def extract_text_from_image(img_path):
-    """Extracts text from a single image using Tesseract."""
     try:
-        preprocessed_img = preprocess_image(img_path)
-        # You may need to add your tesseract path if it's not in your system PATH
+        img = cv2.imread(img_path)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+        gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        
+        # !! WINDOWS USERS: Uncomment if Tesseract is not in PATH !!
         # pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-        text = pytesseract.image_to_string(preprocessed_img, lang='eng')
+        
+        text = pytesseract.image_to_string(gray, lang='eng', config='--psm 6')
         return text
     except Exception as e:
-        print(f"Error during OCR: {e}")
-        return ""
+        print(f"OCR Error: {e}"); return ""
+
+def is_valid_medical_range(key, value):
+    try:
+        val = float(value)
+        if key == 'ap_hi': return 60 <= val <= 300   
+        if key == 'ap_lo': return 30 <= val <= 200
+        if key == 'cholesterol': return 80 <= val <= 900 
+        if key == 'glucose': return 40 <= val <= 700
+        if key == 'age': return 1 <= val <= 120
+        if key == 'weight': return 20 <= val <= 300
+        if key == 'height': return 50 <= val <= 250
+    except:
+        return False
+    return True
 
 def extract_key_values(text):
-    """Uses regex to find medical values in the OCR text."""
+    text = text.lower()
     patterns = {
-        "age": r"(age|years old|yrs|yr)[^\d]*(\d{1,3})",
-        "gender": r"(gender|sex)[^\w]*(male|female|m|f)",
-        "height": r"(height|ht)[^\d]*(\d{2,3})", # Simplified units
-        "weight": r"(weight|wt)[^\d]*(\d{2,3})", # Simplified units
-        "cholesterol": r"(cholesterol|chol)[^\d]*(\d{2,3})",
-        "glucose": r"(glucose|gluc)[^\d]*(\d{2,3})",
-        "blood_pressure": r"(bp|blood pressure)[^\d:]*\s*[:]?\s*(\d{2,3})(?:\s*/\s*(\d{2,3}))?"
+        "age": r"\b(?:age|years)\b[^\d\n]{0,25}(\d{1,3})",
+        "height": r"\b(?:height|ht)\b[^\d\n]{0,25}(\d{2,3})", 
+        "weight": r"\b(?:weight|wt)\b[^\d\n]{0,25}(\d{2,3}(?:\.\d{1,2})?)",
+        "cholesterol": r"\b(?:total\s+)?(?:cholesterol|chol)\b[^\d\n]{0,25}(\d{2,3})",
+        "glucose": r"\b(?:glucose|gluc|fasting\s+sugar|fbs)\b[^\d\n]{0,25}(\d{2,3})",
+        "systolic": r"\b(?:systolic|sys\.?)\s*(?:bp|blood\s*pressure)?\b[^\d\n]{0,25}(\d{2,3})",
+        "diastolic": r"\b(?:diastolic|dia\.?)\s*(?:bp|blood\s*pressure)?\b[^\d\n]{0,25}(\d{2,3})",
+        "bp_combined": r"\b(?:bp|blood\s*pressure)\b[^\d\n]{0,25}(\d{2,3})\s*[:/-]\s*(\d{2,3})",
+        "gender": r"\b(?:gender|sex)\b[^\w\n]{0,25}(male|female|m|f)",
+        "smoke": r"\b(?:smoke|smoking|tobacco)\b[^\w\n]{0,25}(yes|no)",
+        "alco": r"\b(?:alcohol|liquor)\b[^\w\n]{0,25}(yes|no)",
+        "active": r"\b(?:active|exercise)\b[^\w\n]{0,25}(yes|no)"
     }
     
     results = {}
     for key, pattern in patterns.items():
-        matches = re.findall(pattern, text, flags=re.IGNORECASE | re.DOTALL)
+        matches = re.search(pattern, text)
         if matches:
-            if key == "blood_pressure":
-                results['ap_hi'] = matches[0][1]
-                if len(matches[0]) > 2 and matches[0][2]:
-                    results['ap_lo'] = matches[0][2]
+            if key == "systolic":
+                val = matches.group(1)
+                if is_valid_medical_range('ap_hi', val): results['ap_hi'] = val
+            elif key == "diastolic":
+                val = matches.group(1)
+                if is_valid_medical_range('ap_lo', val): results['ap_lo'] = val
+            elif key == "bp_combined":
+                sys_val, dia_val = matches.group(1), matches.group(2)
+                if 'ap_hi' not in results and is_valid_medical_range('ap_hi', sys_val): results['ap_hi'] = sys_val
+                if 'ap_lo' not in results and is_valid_medical_range('ap_lo', dia_val): results['ap_lo'] = dia_val
             elif key == "gender":
-                gender_val = matches[0][1].lower()
-                if gender_val.startswith('m'):
-                    results['gender'] = 'Male'
-                elif gender_val.startswith('f'):
-                    results['gender'] = 'Female'
+                val = matches.group(1).lower()
+                results['gender'] = 'Male' if val.startswith('m') else 'Female'
+            elif key in ["smoke", "alco", "active"]:
+                val = matches.group(1).lower()
+                results[key] = 'yes' if val in ['yes', 'active', 'smoker', 'drinker'] else 'no'
             else:
-                results[key] = matches[0][1] # Get the numeric value
-    
+                val = matches.group(1)
+                if is_valid_medical_range(key, val): results[key] = val
     return results
 
-# --- Backend API Endpoints ---
-
-@app.route('/extract', methods=['POST'])
-def handle_extraction():
+def calculate_clinical_risk(data):
     """
-    Handles file upload, performs OCR, and returns extracted JSON data.
+    SAFETY NET: Overrides ML Model for extreme/dangerous values.
+    Returns (Prediction, Probability) if risk is critical.
+    Otherwise returns None (letting AI decide).
     """
-    if 'file' not in request.files:
-        return jsonify({'error': 'No file part'}), 400
-
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'error': 'No selected file'}), 400
-
-    # Save temp file
-    temp_dir = 'temp_files'
-    os.makedirs(temp_dir, exist_ok=True)
-    file_path = os.path.join(temp_dir, file.filename)
-    file.save(file_path)
-
-    full_text = ""
     try:
-        if file.filename.lower().endswith('.pdf'):
-            
-            # ---!!! THIS IS THE FIX !!!---
-            # Update this path to your Poppler 'bin' directory
-            poppler_install_path = r"C:\Program Files\poppler-25.07.0\Library\bin" 
-            
-            pages = convert_from_path(
-                file_path, 
-                dpi=200,
-                poppler_path=poppler_install_path
-            )
-            
-            for i, page in enumerate(pages):
-                img_page_path = os.path.join(temp_dir, f'page_{i}.jpg')
-                page.save(img_page_path, 'JPEG')
-                full_text += extract_text_from_image(img_page_path) + "\n"
-        else: # Assume image
-            full_text = extract_text_from_image(file_path)
-        
-        # Clean up temp files
-        for f in os.listdir(temp_dir):
-            os.remove(os.path.join(temp_dir, f))
-            
+        # 1. Get Values
+        chol = int(data.get('cholesterol', 0))
+        gluc = int(data.get('glucose', 0))
+        ap_hi = int(data.get('ap_hi', 0))
+        ap_lo = int(data.get('ap_lo', 0))
+        weight = float(data.get('weight', 0))
+        height = int(data.get('height', 0))
+
+        # 2. Calculate BMI (Body Mass Index)
+        bmi = 0
+        if height > 0:
+            height_m = height / 100
+            bmi = weight / (height_m * height_m)
+
+        # --- CRITICAL THRESHOLDS ---
+
+        # Condition A: Hypertensive Crisis (High BP)
+        # Systolic > 180 OR Diastolic > 120
+        if ap_hi > 180 or ap_lo > 120:
+            return 1, 99.0 # Critical High Risk
+
+        # Condition B: Diabetes / High Sugar
+        if gluc > 220:
+            return 1, 98.0 
+
+        # Condition C: Very High Cholesterol
+        if chol > 300:
+            return 1, 97.0
+
+        # Condition D: Morbid Obesity (BMI > 40)
+        if bmi > 40:
+            return 1, 85.0 # High probability due to obesity risk
+
     except Exception as e:
-        # Clean up on error too
-        for f in os.listdir(temp_dir):
-            os.remove(os.path.join(temp_dir, f))
-        print(f"Error processing file: {e}")
-        return jsonify({'error': f'Error processing file. Is Poppler installed and path correct? Error: {e}'}), 500
-
-    extracted_data = extract_key_values(full_text)
-    return jsonify(extracted_data)
-
+        print(f"Clinical Check Error: {e}")
+        pass
+    
+    # If none of the above are true, return None (Use AI Model)
+    return None
 
 def preprocess_input(data):
-    """
-    Converts raw form data into the categorical format the model expects.
-    """
-    # 1. Convert Cholesterol (mg/dL) to category
-    # Ranges: 1: <200 (Normal), 2: 200-239 (Above Normal), 3: >=240 (Well Above Normal)
-    chol = int(data.get('cholesterol', 0))
-    if chol < 200:
-        data['Cholesterol'] = 1
-    elif 200 <= chol < 240:
-        data['Cholesterol'] = 2
-    else:
-        data['Cholesterol'] = 3
-        
-    # 2. Convert Glucose (mg/dL) to category
-    # Ranges (fasting): 1: <100 (Normal), 2: 100-125 (Above Normal), 3: >=126 (Well Above Normal)
-    gluc = int(data.get('gluc', 0))
-    if gluc < 100:
-        data['Gluc'] = 1
-    elif 100 <= gluc < 126:
-        data['Gluc'] = 2
-    else:
-        data['Gluc'] = 3
-
-    # 3. Map string/form values to model's expected numbers
-    # We assume 1=Male, 2=Female based on common datasets (your training data shows 1 and 2)
-    data['Gender'] = 2 if data.get('gender') == 'female' else 1
+    """Converts raw data to model categories."""
+    data_copy = data.copy()
     
-    # We assume 0=No, 1=Yes for these, as is standard
-    data['Smoke'] = 1 if data.get('smoke') == 'yes' else 0
-    data['Alco'] = 1 if data.get('alco') == 'yes' else 0
-    data['Active'] = 1 if data.get('active') == 'yes' else 0
+    # 1. Categorize Cholesterol
+    chol = int(data_copy.get('cholesterol', 0))
+    if chol < 200: data_copy['Cholesterol'] = 1
+    elif 200 <= chol < 240: data_copy['Cholesterol'] = 2
+    else: data_copy['Cholesterol'] = 3
+    
+    # 2. Categorize Glucose
+    gluc = int(data_copy.get('glucose', 0))
+    if gluc < 100: data_copy['Gluc'] = 1
+    elif 100 <= gluc < 126: data_copy['Gluc'] = 2
+    else: data_copy['Gluc'] = 3
 
-    # 4. Prepare final DataFrame in the correct order
-    # Note: 'Age ' key has a space, matching your training data
+    # 3. Map Dropdowns
+    data_copy['Gender'] = 2 if str(data_copy.get('gender')).lower() == 'female' else 1
+    data_copy['Smoke'] = 1 if str(data_copy.get('smoke')).lower() == 'yes' else 0
+    data_copy['Alco'] = 1 if str(data_copy.get('alco')).lower() == 'yes' else 0
+    data_copy['Active'] = 1 if str(data_copy.get('active')).lower() == 'yes' else 0
+
+    # 4. Build DataFrame
     input_data = {
-        'Age ': [int(data.get('age', 0))],
-        'Gender': [data['Gender']],
-        'Height': [int(data.get('height', 0))],
-        'Weight': [float(data.get('weight', 0))],
-        'ap_hi': [int(data.get('ap_hi', 0))],
-        'ap_lo': [int(data.get('ap_lo', 0))],
-        'Cholesterol': [data['Cholesterol']],
-        'Gluc': [data['Gluc']],
-        'Smoke': [data['Smoke']],
-        'Alco': [data['Alco']],
-        'Active': [data['Active']]
+        'Age ': [int(data_copy.get('age', 0))], 'Gender': [data_copy['Gender']],
+        'Height': [int(data_copy.get('height', 0))], 'Weight': [float(data_copy.get('weight', 0))],
+        'ap_hi': [int(data_copy.get('ap_hi', 0))], 'ap_lo': [int(data_copy.get('ap_lo', 0))],
+        'Cholesterol': [data_copy['Cholesterol']], 'Gluc': [data_copy['Gluc']],
+        'Smoke': [data_copy['Smoke']], 'Alco': [data_copy['Alco']], 'Active': [data_copy['Active']]
     }
-    
-    # Create DataFrame with columns in the exact order the model expects
-    df = pd.DataFrame(input_data, columns=EXPECTED_FEATURES)
-    return df
+    return pd.DataFrame(input_data, columns=EXPECTED_FEATURES)
 
-
-@app.route('/predict', methods=['POST'])
-def predict():
-    """
-    Receives form data, preprocesses it, and returns a model prediction.
-    """
-    if not model:
-        return jsonify({'error': 'Model is not loaded.'}), 500
-        
-    try:
-        data = request.get_json()
-        
-        # Preprocess the data (convert numeric chol/gluc to categories, etc.)
-        processed_df = preprocess_input(data)
-
-        # Make prediction
-        prediction = model.predict(processed_df)
-        probability = model.predict_proba(processed_df)
-
-        # Format response
-        risk_probability = probability[0][1] # Probability of class 1 (disease)
-        
-        # --- THIS IS THE FIX ---
-        # Convert the final numpy.float32 to a standard Python float
-        result = {
-            'prediction': int(prediction[0]), # 0 or 1
-            'probability': float(round(risk_probability * 100, 2)) 
-        }
-        return jsonify(result)
-        
-    except Exception as e:
-        print(f"Error during prediction: {e}")
-        return jsonify({'error': str(e)}), 400
-
-
-@app.route('/feedback', methods=['POST'])
-def handle_feedback():
-    """Saves user feedback to a text file."""
-    try:
-        data = request.get_json()
-        name = data.get('name', 'Anonymous')
-        review = data.get('review', '')
-
-        with open('feedback.txt', 'a') as f:
-            f.write(f"Name: {name}\nReview: {review}\n{'-'*20}\n")
-            
-        return jsonify({'success': 'Feedback received!'})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-# --- Frontend Page Routes ---
+# --- Routes ---
 
 @app.route('/')
 def home():
-    return render_template('index.html')
+    feedbacks = []; quotes = ["Healthy heart, happy life.", "Prevention is better than cure.", "Listen to your heart."]
+    if os.path.exists('feedback.txt'):
+        with open('feedback.txt', 'r') as f:
+            content = f.read().split('--------------------')
+            feedbacks = [c.strip() for c in content if len(c.strip()) > 10]
+            feedbacks = random.sample(feedbacks, min(4, len(feedbacks))) if feedbacks else []
+    return render_template('index.html', feedbacks=feedbacks, quotes=quotes)
 
-@app.route('/about')
-def about():
-    return render_template('about.html')
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated: return redirect(url_for('home'))
+    if request.method == 'POST':
+        user = User.query.filter_by(email=request.form.get('email')).first()
+        if user and user.check_password(request.form.get('password')):
+            login_user(user); return redirect(url_for('home'))
+        flash('Invalid credentials.', 'error')
+    return render_template('login.html')
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if current_user.is_authenticated: return redirect(url_for('home'))
+    if request.method == 'POST':
+        if User.query.filter_by(email=request.form.get('email')).first():
+            flash('Email already exists.', 'error')
+        else:
+            new_user = User(
+                username=request.form.get('username'), email=request.form.get('email'), name=request.form.get('name'), 
+                age=request.form.get('age'), gender=request.form.get('gender'), height=request.form.get('height'),
+                weight=request.form.get('weight'), blood_group=request.form.get('blood_group')
+            )
+            new_user.set_password(request.form.get('password')); db.session.add(new_user); db.session.commit()
+            flash('Account created! Please login.', 'success'); return redirect(url_for('login'))
+    return render_template('register.html')
+
+@app.route('/logout')
+@login_required
+def logout(): logout_user(); return redirect(url_for('home'))
+
+@app.route('/guest_analyser')
+def guest_analyser(): return redirect(url_for('analyser'))
+
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    # Fetch History
+    history = Analysis.query.filter_by(user_id=current_user.id).order_by(Analysis.date_posted.desc()).limit(5).all()
+    
+    if request.method == 'POST':
+        current_user.name = request.form.get('name'); current_user.age = request.form.get('age')
+        current_user.gender = request.form.get('gender'); current_user.height = request.form.get('height')
+        current_user.weight = request.form.get('weight'); current_user.blood_group = request.form.get('blood_group')
+        
+        if 'profile_pic' in request.files:
+            file = request.files['profile_pic']
+            if file and allowed_file(file.filename):
+                filename = secure_filename(f"{current_user.id}_{uuid.uuid4().hex[:8]}.jpg")
+                file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+                current_user.profile_pic = filename
+
+        try: db.session.commit(); flash('Profile updated!', 'success')
+        except: db.session.rollback(); flash('Error saving.', 'error')
+        return redirect(url_for('profile'))
+    return render_template('profile.html', user=current_user, history=history)
 
 @app.route('/analyser')
 def analyser():
-    return render_template('analyser.html')
+    user_data = {}
+    if current_user.is_authenticated:
+        user_data = {
+            'age': current_user.age or '', 'gender': current_user.gender or '', 
+            'height': int(current_user.height) if current_user.height else '', 
+            'weight': current_user.weight or ''
+        }
+    return render_template('analyser.html', user_data=user_data)
+
+@app.route('/about')
+def about(): return render_template('about.html')
 
 @app.route('/contact')
 def contact():
+    if not current_user.is_authenticated: return redirect(url_for('login'))
     return render_template('contact.html')
 
-# --- Run the App ---
+@app.route('/extract', methods=['POST'])
+def handle_extraction():
+    if 'file' not in request.files: return jsonify({'error': 'No file part'}), 400
+    file = request.files['file']
+    if file.filename == '': return jsonify({'error': 'No selected file'}), 400
+
+    temp_dir = 'temp_files'; os.makedirs(temp_dir, exist_ok=True)
+    file_path = os.path.join(temp_dir, file.filename); file.save(file_path); full_text = ""
+    
+    try:
+        if file.filename.lower().endswith('.pdf'):
+            # !! CONFIG: Check Poppler Path !!
+            poppler_path = r"C:\Program Files\poppler-25.07.0\Library\bin"
+            pages = convert_from_path(file_path, dpi=200, poppler_path=poppler_path)
+            for i, page in enumerate(pages):
+                p_path = os.path.join(temp_dir, f'page_{i}.jpg'); page.save(p_path, 'JPEG')
+                full_text += extract_text_from_image(p_path) + "\n"
+        else: full_text = extract_text_from_image(file_path)
+    except Exception as e: return jsonify({'error': f'OCR Failed: {e}'}), 500
+
+    for f in os.listdir(temp_dir):
+        try: os.remove(os.path.join(temp_dir, f)); 
+        except: pass
+
+    return jsonify(extract_key_values(full_text))
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    data = request.get_json()
+    # Validation
+    required_fields = ['age', 'height', 'weight', 'ap_hi', 'ap_lo', 'cholesterol', 'glucose', 'smoke', 'alco', 'active']
+    for f in required_fields:
+        if not data.get(f): return jsonify({'error': f'Missing {f}. Please fill all fields.'}), 400
+
+    try:
+        # 1. Strict Type Casting
+        data['age'] = int(data['age']); data['height'] = int(data['height']); data['weight'] = float(data['weight'])
+        data['ap_hi'] = int(data['ap_hi']); data['ap_lo'] = int(data['ap_lo'])
+        data['cholesterol'] = int(data['cholesterol']); data['glucose'] = int(data['glucose'])
+
+        # 2. Clinical Safety Net (Checks for BP > 120 Dia, BMI > 40, etc.)
+        clinical_result = calculate_clinical_risk(data)
+        
+        if clinical_result:
+            pred, prob = clinical_result # Force High Risk
+        else:
+            # 3. AI Prediction (Normal cases)
+            processed = preprocess_input(data)
+            pred = int(model.predict(processed)[0])
+            prob = float(round(model.predict_proba(processed)[0][1] * 100, 2))
+
+        # 4. Save History
+        if current_user.is_authenticated:
+            rec = Analysis(
+                user_id=current_user.id, age=data['age'], gender=data['gender'], height=data['height'],
+                weight=data['weight'], ap_hi=data['ap_hi'], ap_lo=data['ap_lo'], 
+                cholesterol=data['cholesterol'], glucose=data['glucose'], smoke=data['smoke'], 
+                alco=data['alco'], active=data['active'], prediction=pred, probability=prob
+            )
+            db.session.add(rec); db.session.commit()
+            
+        return jsonify({'prediction': pred, 'probability': prob})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/feedback', methods=['POST'])
+@login_required
+def handle_feedback():
+    data = request.get_json()
+    with open('feedback.txt', 'a') as f:
+        f.write(f"Name: {data.get('name') or current_user.username}\nReview: {data.get('review')}\n--------------------\n")
+    return jsonify({'success': 'Saved'})
+
 if __name__ == '__main__':
-    # Creates 'temp_files' directory if it doesn't exist
-    os.makedirs('temp_files', exist_ok=True) 
+    with app.app_context(): db.create_all()
+    os.makedirs('static/profile_pics', exist_ok=True)
+    os.makedirs('temp_files', exist_ok=True)
     app.run(debug=True)
